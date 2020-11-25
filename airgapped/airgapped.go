@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"path/filepath"
 	"sync"
 
 	vss "github.com/corestario/kyber/share/vss/rabin"
@@ -18,7 +17,6 @@ import (
 	"github.com/lidofinance/dc4bc/fsm/state_machines/signature_proposal_fsm"
 	"github.com/lidofinance/dc4bc/fsm/state_machines/signing_proposal_fsm"
 	"github.com/lidofinance/dc4bc/fsm/types/requests"
-	"github.com/lidofinance/dc4bc/qr"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -30,7 +28,6 @@ type Machine struct {
 	sync.Mutex
 
 	dkgInstances map[string]*dkg.DKG
-	qrProcessor  qr.Processor
 
 	encryptionKey []byte
 	pubKey        kyber.Point
@@ -49,7 +46,6 @@ func NewMachine(dbPath string) (*Machine, error) {
 
 	am := &Machine{
 		dkgInstances: make(map[string]*dkg.DKG),
-		qrProcessor:  qr.NewCameraProcessor(),
 	}
 
 	if am.db, err = leveldb.OpenFile(dbPath, nil); err != nil {
@@ -72,18 +68,6 @@ func NewMachine(dbPath string) (*Machine, error) {
 	}
 
 	return am, nil
-}
-
-func (am *Machine) SetQRProcessorFramesDelay(delay int) {
-	am.qrProcessor.SetDelay(delay)
-}
-
-func (am *Machine) CloseCameraReader() {
-	am.qrProcessor.CloseCameraReader()
-}
-
-func (am *Machine) SetQRProcessorChunkSize(chunkSize int) {
-	am.qrProcessor.SetChunkSize(chunkSize)
 }
 
 func (am *Machine) SetResultQRFolder(resultQRFolder string) {
@@ -237,21 +221,17 @@ func (am *Machine) handleOperation(operation client.Operation) (client.Operation
 }
 
 // HandleQR - gets an operation from a QR code, do necessary things for the operation and returns paths to QR-code images
-func (am *Machine) HandleQR() (string, error) {
+func (am *Machine) HandleQR(data []byte) (string, error) {
 	var (
 		err error
 
 		// input operation
 		operation client.Operation
-		qrData    []byte
 
 		resultOperation client.Operation
 	)
 
-	if qrData, err = am.qrProcessor.ReadQR(); err != nil {
-		return "", fmt.Errorf("failed to read QR: %w", err)
-	}
-	if err = json.Unmarshal(qrData, &operation); err != nil {
+	if err = json.Unmarshal(data, &operation); err != nil {
 		return "", fmt.Errorf("failed to unmarshal operation: %w", err)
 	}
 
@@ -264,12 +244,7 @@ func (am *Machine) HandleQR() (string, error) {
 		return "", fmt.Errorf("failed to marshal operation: %w", err)
 	}
 
-	qrPath := filepath.Join(am.resultQRFolder, fmt.Sprintf("dc4bc_qr_%s-response.gif", resultOperation.ID))
-	if err = am.qrProcessor.WriteQR(qrPath, operationBz); err != nil {
-		return "", fmt.Errorf("failed to write QR: %w", err)
-	}
-
-	return qrPath, nil
+	return string(operationBz), nil
 }
 
 // writeErrorRequestToOperation writes error to a operation if some bad things happened

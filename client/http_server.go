@@ -17,7 +17,6 @@ import (
 	sif "github.com/lidofinance/dc4bc/fsm/state_machines/signing_proposal_fsm"
 	"github.com/lidofinance/dc4bc/fsm/types/requests"
 
-	"github.com/lidofinance/dc4bc/qr"
 	"github.com/lidofinance/dc4bc/storage"
 )
 
@@ -67,12 +66,10 @@ func (c *BaseClient) StartHTTPServer(listenAddr string) error {
 
 	mux.HandleFunc("/sendMessage", c.sendMessageHandler)
 	mux.HandleFunc("/getOperations", c.getOperationsHandler)
-	mux.HandleFunc("/getOperationQRPath", c.getOperationQRPathHandler)
 
 	mux.HandleFunc("/getSignatures", c.getSignaturesHandler)
 	mux.HandleFunc("/getSignatureByID", c.getSignatureByIDHandler)
 
-	mux.HandleFunc("/getOperationQR", c.getOperationQRToBodyHandler)
 	mux.HandleFunc("/handleProcessedOperationJSON", c.handleJSONOperationHandler)
 	mux.HandleFunc("/getOperation", c.getOperationHandler)
 
@@ -252,22 +249,6 @@ func (c *BaseClient) getSignatureByIDHandler(w http.ResponseWriter, r *http.Requ
 	successResponse(w, signature)
 }
 
-func (c *BaseClient) getOperationQRPathHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		errorResponse(w, http.StatusBadRequest, "Wrong HTTP method")
-		return
-	}
-	operationID := r.URL.Query().Get("operationID")
-
-	qrPaths, err := c.GetOperationQRPath(operationID)
-	if err != nil {
-		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("failed to get operation QR path: %v", err))
-		return
-	}
-
-	successResponse(w, qrPaths)
-}
-
 func (c *BaseClient) getOperationHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		errorResponse(w, http.StatusBadRequest, "Wrong HTTP method")
@@ -282,30 +263,6 @@ func (c *BaseClient) getOperationHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	successResponse(w, operation)
-}
-
-func (c *BaseClient) getOperationQRToBodyHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		errorResponse(w, http.StatusBadRequest, "Wrong HTTP method")
-		return
-	}
-	operationID := r.URL.Query().Get("operationID")
-
-	operationJSON, err := c.getOperationJSON(operationID)
-	if err != nil {
-		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("failed to get operation in JSON: %v", err))
-		return
-	}
-
-	encodedData, err := qr.EncodeQR(operationJSON)
-	if err != nil {
-		errorResponse(w, http.StatusInternalServerError, fmt.Sprintf("failed to encode operation: %v", err))
-		return
-	}
-
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(encodedData)))
-	rawResponse(w, encodedData)
 }
 
 func (c *BaseClient) startDKGHandler(w http.ResponseWriter, r *http.Request) {

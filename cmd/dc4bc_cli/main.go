@@ -11,7 +11,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,7 +23,6 @@ import (
 
 	"github.com/lidofinance/dc4bc/client"
 	"github.com/lidofinance/dc4bc/fsm/types/requests"
-	"github.com/lidofinance/dc4bc/qr"
 	"github.com/spf13/cobra"
 )
 
@@ -270,25 +268,13 @@ func getOperationRequest(host string, operationID string) (*OperationResponse, e
 
 func getOperationQRPathCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get_operation_qr [operationID]",
+		Use:   "write_operation [operationID]",
 		Args:  cobra.ExactArgs(1),
-		Short: "returns path to QR codes which contains the operation",
+		Short: "returns path to a JSON file which contains the operation",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			listenAddr, err := cmd.Flags().GetString(flagListenAddr)
 			if err != nil {
 				return fmt.Errorf("failed to read configuration: %v", err)
-			}
-			framesDelay, err := cmd.Flags().GetInt(flagFramesDelay)
-			if err != nil {
-				return fmt.Errorf("failed to read configuration: %w", err)
-			}
-			chunkSize, err := cmd.Flags().GetInt(flagChunkSize)
-			if err != nil {
-				return fmt.Errorf("failed to read configuration: %w", err)
-			}
-			qrCodeFolder, err := cmd.Flags().GetString(flagQRCodesFolder)
-			if err != nil {
-				return fmt.Errorf("failed to read configuration: %w", err)
 			}
 
 			operationID := args[0]
@@ -300,19 +286,14 @@ func getOperationQRPathCommand() *cobra.Command {
 				return fmt.Errorf("failed to get operations: %s", operation.ErrorMessage)
 			}
 
-			operationQRPath := filepath.Join(qrCodeFolder, fmt.Sprintf("dc4bc_qr_%s-request", operationID))
-
-			qrPath := fmt.Sprintf("%s.gif", operationQRPath)
-
-			processor := qr.NewCameraProcessor()
-			processor.SetChunkSize(chunkSize)
-			processor.SetDelay(framesDelay)
-
-			if err = processor.WriteQR(qrPath, operation.Result); err != nil {
-				return fmt.Errorf("failed to save QR gif: %w", err)
+			outFileName := fmt.Sprintf("%s.json", args[0])
+			err = ioutil.WriteFile(outFileName, operation.Result, 0400)
+			if err != nil {
+				return fmt.Errorf("failed to write result to %s: %w", outFileName, err)
 			}
 
-			fmt.Printf("QR code was saved to: %s\n", qrPath)
+			fmt.Printf("wrote operation to %s\n", outFileName)
+
 			return nil
 		},
 	}
@@ -459,21 +440,23 @@ func rawPostRequest(url string, contentType string, data []byte) (*client.Respon
 
 func readOperationFromCameraCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "read_qr",
-		Short: "opens the camera and reads QR codes which should contain a processed operation",
+		Use:   "read_op [operation-id]",
+		Args:  cobra.ExactArgs(1),
+		Short: "reads the file operation-id_res.json which should contain a processed operation",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			listenAddr, err := cmd.Flags().GetString(flagListenAddr)
 			if err != nil {
 				return fmt.Errorf("failed to read configuration: %v", err)
 			}
 
-			processor := qr.NewCameraProcessor()
-			data, err := processor.ReadQR()
+			opID := args[0]
+			d, err := ioutil.ReadFile(opID + "_res.json")
 			if err != nil {
-				return fmt.Errorf("failed to read data from QR: %w", err)
+				return fmt.Errorf("failed to read response: %w", err)
 			}
+
 			resp, err := rawPostRequest(fmt.Sprintf("http://%s/handleProcessedOperationJSON", listenAddr),
-				"application/json", data)
+				"application/json", d)
 			if err != nil {
 				return fmt.Errorf("failed to handle processed operation: %w", err)
 			}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/syndtr/goleveldb/leveldb"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
@@ -48,7 +49,7 @@ type prompt struct {
 
 func NewPrompt(machine *airgapped.Machine) (*prompt, error) {
 	p := prompt{
-		reader:                    bufio.NewReader(os.Stdin),
+		reader:                    bufio.NewReaderSize(os.Stdin, 100000),
 		airgapped:                 machine,
 		commands:                  make(map[string]*promptCommand),
 		currentCommand:            "",
@@ -61,9 +62,9 @@ func NewPrompt(machine *airgapped.Machine) (*prompt, error) {
 	}
 	p.initTerminal()
 
-	p.addCommand("read_qr", &promptCommand{
-		commandHandler: p.readQRCommand,
-		description:    "Reads QR chunks from camera, handle a decoded operation and returns paths to qr chunks of operation's result",
+	p.addCommand("read_op", &promptCommand{
+		commandHandler: p.readOPCommand,
+		description:    "Reads a JSON file, handles a decoded operation and returns paths to qr chunks of operation's result",
 	})
 	p.addCommand("help", &promptCommand{
 		commandHandler: p.helpCommand,
@@ -139,14 +140,32 @@ func (p *prompt) addCommand(name string, command *promptCommand) {
 	p.commands[name] = command
 }
 
-func (p *prompt) readQRCommand() error {
-	qrPath, err := p.airgapped.HandleQR()
+func (p *prompt) readOPCommand() error {
+	p.print("> Enter the operation ID: ")
+
+	fileName, _, err := p.reader.ReadLine()
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+
+	operationFile := fmt.Sprintf("%s.json", string(fileName))
+	f, err := ioutil.ReadFile(operationFile)
+	if err != nil {
+		return fmt.Errorf("failed to open operation file %s: %w", operationFile, err)
+	}
+
+	opResponse, err := p.airgapped.HandleQR(f)
 	if err != nil {
 		return err
 	}
 
-	p.println("An operation in the read QR code handled successfully, a result operation saved by chunks in following qr codes:")
-	p.printf("Operation's chunk: %s\n", qrPath)
+	outFileName := fmt.Sprintf("%s_res.json", string(fileName))
+	err = ioutil.WriteFile(outFileName, []byte(opResponse), 0400)
+	if err != nil {
+		return fmt.Errorf("failed to write result to %s: %w", outFileName, err)
+	}
+
+	p.println("Success - ")
 	return nil
 }
 
@@ -221,7 +240,6 @@ func (p *prompt) changeConfigurationCommand() error {
 		if err != nil {
 			return fmt.Errorf("failed to parse new frames delay: %w", err)
 		}
-		p.airgapped.SetQRProcessorFramesDelay(framesDelay)
 		p.printf("Frames delay was changed to: %d\n", framesDelay)
 	}
 
@@ -235,7 +253,6 @@ func (p *prompt) changeConfigurationCommand() error {
 		if err != nil {
 			return fmt.Errorf("failed to parse new chunk size: %w", err)
 		}
-		p.airgapped.SetQRProcessorChunkSize(chunkSize)
 		p.printf("Chunk size was changed to: %d\n", chunkSize)
 	}
 
@@ -473,8 +490,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to init airgapped machine %v", err)
 	}
-	air.SetQRProcessorFramesDelay(framesDelay)
-	air.SetQRProcessorChunkSize(chunkSize)
 	air.SetResultQRFolder(qrCodesFolder)
 
 	c := make(chan os.Signal, 1)
@@ -489,7 +504,6 @@ func main() {
 	go func() {
 		for range c {
 			if p.currentCommand == "read_qr" {
-				p.airgapped.CloseCameraReader()
 				continue
 			}
 			p.printf("Intercepting SIGINT, please type `exit` to stop the machine\n")

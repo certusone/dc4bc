@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -25,13 +24,11 @@ import (
 
 	"github.com/lidofinance/dc4bc/fsm/fsm"
 	dpf "github.com/lidofinance/dc4bc/fsm/state_machines/dkg_proposal_fsm"
-	"github.com/lidofinance/dc4bc/qr"
 	"github.com/lidofinance/dc4bc/storage"
 )
 
 const (
 	pollingPeriod = time.Second
-	QrCodesDir    = "/tmp"
 )
 
 type Client interface {
@@ -42,20 +39,18 @@ type Client interface {
 	SendMessage(message storage.Message) error
 	ProcessMessage(message storage.Message) error
 	GetOperations() (map[string]*types.Operation, error)
-	GetOperationQRPath(operationID string) (string, error)
 	StartHTTPServer(listenAddr string) error
 }
 
 type BaseClient struct {
 	sync.Mutex
-	Logger      *logger
-	userName    string
-	pubKey      ed25519.PublicKey
-	ctx         context.Context
-	state       State
-	storage     storage.Storage
-	keyStore    KeyStore
-	qrProcessor qr.Processor
+	Logger   *logger
+	userName string
+	pubKey   ed25519.PublicKey
+	ctx      context.Context
+	state    State
+	storage  storage.Storage
+	keyStore KeyStore
 }
 
 func NewClient(
@@ -64,7 +59,6 @@ func NewClient(
 	state State,
 	storage storage.Storage,
 	keyStore KeyStore,
-	qrProcessor qr.Processor,
 ) (Client, error) {
 	keyPair, err := keyStore.LoadKeys(userName, "")
 	if err != nil {
@@ -72,14 +66,13 @@ func NewClient(
 	}
 
 	return &BaseClient{
-		ctx:         ctx,
-		Logger:      newLogger(userName),
-		userName:    userName,
-		pubKey:      keyPair.Pub,
-		state:       state,
-		storage:     storage,
-		keyStore:    keyStore,
-		qrProcessor: qrProcessor,
+		ctx:      ctx,
+		Logger:   newLogger(userName),
+		userName: userName,
+		pubKey:   keyPair.Pub,
+		state:    state,
+		storage:  storage,
+		keyStore: keyStore,
 	}, nil
 }
 
@@ -320,25 +313,6 @@ func (c *BaseClient) getOperationJSON(operationID string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to marshal operation: %w", err)
 	}
 	return operationJSON, nil
-}
-
-// GetOperationQRPath returns a path to the image with the QR generated
-// for the specified operation. It is supposed that the user will open
-// this file herself.
-func (c *BaseClient) GetOperationQRPath(operationID string) (string, error) {
-	operationJSON, err := c.getOperationJSON(operationID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get operation in JSON: %w", err)
-	}
-
-	operationQRPath := filepath.Join(QrCodesDir, fmt.Sprintf("dc4bc_qr_%s", operationID))
-
-	qrPath := fmt.Sprintf("%s.gif", operationQRPath)
-	if err = c.qrProcessor.WriteQR(qrPath, operationJSON); err != nil {
-		return "", err
-	}
-
-	return qrPath, nil
 }
 
 // handleProcessedOperation handles an operation which was processed by the airgapped machine

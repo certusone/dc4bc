@@ -10,7 +10,6 @@ import (
 	"syscall"
 
 	"github.com/lidofinance/dc4bc/client"
-	"github.com/lidofinance/dc4bc/qr"
 	"github.com/lidofinance/dc4bc/storage"
 
 	"github.com/spf13/cobra"
@@ -160,13 +159,7 @@ func startClientCommand() *cobra.Command {
 				return fmt.Errorf("failed to init key store: %w", err)
 			}
 
-			framesDelay := viper.GetInt(flagFramesDelay)
-			chunkSize := viper.GetInt(flagChunkSize)
-			processor := qr.NewCameraProcessor()
-			processor.SetDelay(framesDelay)
-			processor.SetChunkSize(chunkSize)
-
-			cli, err := client.NewClient(ctx, username, state, stg, keyStore, processor)
+			cli, err := client.NewClient(ctx, username, state, stg, keyStore)
 			if err != nil {
 				return fmt.Errorf("failed to init client: %w", err)
 			}
